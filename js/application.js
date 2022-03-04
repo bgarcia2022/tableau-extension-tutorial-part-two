@@ -1,50 +1,85 @@
 'use strict';
-  
+ 
 (function () {
+   let unregisterFilterEventListener = null;
+   let worksheet = null;
+   let worksheetName = null;
+   let categoryColumnNumber = null;
+   let valueColumnNumber = null;
+ 
    $(document).ready(function () {
-      // Initialises Tableau Data Extension
-      tableau.extensions.initializeAsync().then(function () {
-      // Once we initialize we call teh drawChartJS function.
-      drawChartJS();
-   }, function () { console.log('Error while Initializing: ' + err.toString()); });
+      tableau.extensions.initializeAsync({ 'configure':configure }).then(function () {
+         // Draw the chart when initialising the dashboard.
+         getSettings();
+         drawChartJS();
+         // Set up the Settings Event Listener.
+         unregisterSettingsEventListener = tableau.extensions.settings.addEventListener(tableau.TableauEventType.SettingsChanged, (settingsEvent) => {
+            // On settings change.
+            getSettings();
+            drawChartJS();
+         });
+      }, function () { console.log('Error while Initializing: ' + err.toString()); });
    });
  
-   // This javascript function gets data from our worksheet and draws the Doughnut.
-   function drawChartJS() {
-      // Gets all the worksheets in a Tableau Dashboard
-      const worksheets = tableau.extensions.dashboardContent.dashboard.worksheets;
-      // Finds a worksheet called worksheetData
-      var worksheet = worksheets.find(function (sheet) {
-         return sheet.name === "worksheetData";
+   function getSettings() {
+      // Once the settings change populate global variables from the settings.
+      worksheetName = tableau.extensions.settings.get("worksheet");
+      categoryColumnNumber = tableau.extensions.settings.get("categoryColumnNumber");
+      valueColumnNumber = tableau.extensions.settings.get("valueColumnNumber");
+ 
+      // If settings are changed we will unregister and re register the listener.
+      if (unregisterFilterEventListener != null) {
+         unregisterFilterEventListener();
+      }
+ 
+      // Get worksheet
+      worksheet = tableau.extensions.dashboardContent.dashboard.worksheets.find(function (sheet) {
+         return sheet.name===worksheetName;
       });
  
-      // Call a function on the worksheet Object to get the Summary Data.
+      // Add listener
+      unregisterFilterEventListener = worksheet.addEventListener(tableau.TableauEventType.FilterChanged, (filterEvent) => {
+         drawChartJS();
+      });
+   }
+ 
+   function drawChartJS() {
       worksheet.getSummaryDataAsync().then(function (sumdata) {
-         // Create an empty arrays for our labels and data set.
          var labels = [];
          var data = [];
-          
-         // We get our summary data:
          var worksheetData = sumdata.data;
-         // We loop through our summary data and hardcode which columns goes into Label
-         // and which column goes into the array.
-         for (var i = 0; i < worksheetData.length; i++) {
-            labels.push(worksheetData[i][0].formattedValue);
-            data.push(worksheetData[i][1].value);
+         for (var i = 0; i<worksheetData.length; i++) {
+            labels.push(worksheetData[i][categoryColumnNumber-1].formattedValue);
+            data.push(worksheetData[i][valueColumnNumber-1].value);
          }
  
-         // Draw the chart as before.
-         var ctx = $("#myChart");
-         var myChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-               labels: labels, // This now comes from Tableau
-               datasets: [{
-                  backgroundColor: ["#3e95cd", "#8e5ea2", "#3cba9f", "#e8c3b9", "#c45850"],
-                  data: data // This now comes from Tableau
-               }]
-            }
-         });
+      var ctx = $("#myChart");
+      myChart = new Chart(ctx, {
+         type: 'doughnut',
+         data: {
+            labels: labels,
+            datasets: [{
+backgroundColor: ["#3e95cd", "#8e5ea2", "#3cba9f", "#e8c3b9", "#c45850"],
+            data: data
+            }]
+         }
+      });
+     });
+   }
+ 
+   function configure() {
+      const popupUrl=`${window.location.origin}/dialog.html`;
+      let defaultPayload="";
+      tableau.extensions.ui.displayDialogAsync(popupUrl, defaultPayload, { height:300, width:500 }).then((closePayload) => {
+         drawChartJS();
+      }).catch((error) => {
+         switch (error.errorCode) {
+            case tableau.ErrorCodes.DialogClosedByUser:
+            console.log("Dialog was closed by user");
+            break;
+         default:
+            console.error(error.message);
+         }
       });
    }
 })();
